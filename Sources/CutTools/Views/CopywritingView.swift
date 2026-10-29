@@ -3,6 +3,10 @@ import SwiftUI
 struct CopywritingView: View {
     @EnvironmentObject var ai: AIModelStore
     @ObservedObject var store: CopyStore
+    @ObservedObject var beats: BeatStore
+    @State private var showHistory = false
+    @State private var showTemplateName = false
+    @State private var showAlignment = false
     @State private var confirmReplace = false
     @State private var offline = false
     @State private var confirmOpen = false
@@ -16,7 +20,11 @@ struct CopywritingView: View {
             HStack(alignment:.top,spacing:20) {
                 Surface(padding:18) {
                     VStack(alignment:.leading,spacing:16) {
-                        Label("创作需求",systemImage:"slider.horizontal.3").font(.headline)
+                        HStack { Label("创作需求",systemImage:"slider.horizontal.3").font(.headline); Spacer(); Menu("模板") {
+                            ForEach(CreativeTemplate.builtins) { template in Button(template.name) { store.applyTemplate(template) } }
+                            Divider(); ForEach(store.templates) { template in Button(template.name) { store.applyTemplate(template) } }
+                            Divider(); Button("保存当前设置为模板") { showTemplateName = true }; Button("导入个人模板") { store.importTemplates() }; Button("导出个人模板") { store.exportTemplates() }
+                        }.fixedSize() }
                         ScrollView {
                             VStack(alignment:.leading,spacing:16) {
                                 VStack(alignment:.leading,spacing:6) { FieldCaption(title:"主题 · 必填"); TextField("这条视频想讲什么？",text:$store.brief.topic,axis:.vertical).textFieldStyle(.roundedBorder) }
@@ -44,6 +52,10 @@ struct CopywritingView: View {
             }.frame(maxHeight:.infinity)
             if store.busy { HStack { ProgressView().controlSize(.small); Text(store.message).font(.callout).foregroundStyle(.secondary); Spacer(); Button("取消生成") { store.cancel() } } }
         }
+        .sheet(item:$store.pendingRewrite) { proposal in RewriteComparisonView(store:store,proposal:proposal) }
+        .sheet(isPresented:$showHistory) { CopyHistoryView(store:store) }
+        .sheet(isPresented:$showTemplateName) { TemplateNameView(store:store) }
+        .sheet(isPresented:$showAlignment) { MusicAlignmentView(copy:store,beats:beats) }
         .confirmationDialog("生成新稿会替换当前稿件，可先导出工程保留当前版本",isPresented:$confirmReplace) { Button("替换生成",role:.destructive) { runGeneration() } }
         .confirmationDialog("载入其他工程会替换当前文案",isPresented:$confirmOpen) { Button("选择其他工程") { store.open() } }
     }
@@ -68,6 +80,8 @@ struct CopywritingView: View {
         VStack(alignment:.leading,spacing:16) {
             HStack {
                 Text("脚本工作台").font(.headline)
+                Menu("版本") { Button("保存当前版本") { store.checkpoint("手动保存") }; Button("历史与对比") { showHistory = true } }.fixedSize()
+                Button("音乐对齐") { showAlignment = true }
                 Spacer()
                 Label("自动保存",systemImage:"checkmark.circle").font(.caption).foregroundStyle(.secondary)
                 Button { store.copyText() } label: { Label("复制口播",systemImage:"doc.on.doc") }
@@ -109,7 +123,9 @@ struct CopywritingView: View {
                 HStack {
                     Text(String(format:"%02d",number)).font(.system(size:14,weight:.semibold,design:.monospaced)).foregroundStyle(.indigo).frame(width:34,height:30).background(.indigo.opacity(0.08),in:RoundedRectangle(cornerRadius:8))
                     Text(number == 1 ? "开场" : "镜头 \(number)").font(.headline)
-                    Spacer(); Stepper("\(scene.wrappedValue.seconds) 秒",value:scene.seconds,in:1...600).fixedSize().font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Menu("AI 改写") { ForEach(["更精简","更自然口语","强化吸引力","更有故事感"],id:\.self) { mode in Button(mode) { do { let (config,key) = try ai.snapshot(); store.rewrite(sceneID:scene.wrappedValue.id,mode:mode,config:config,key:key) } catch { store.message = error.localizedDescription } } } }.fixedSize()
+                    Stepper("\(scene.wrappedValue.seconds) 秒",value:scene.seconds,in:1...600).fixedSize().font(.callout).foregroundStyle(.secondary)
                 }
                 VStack(alignment:.leading,spacing:6) {
                     FieldCaption(title:"口播")

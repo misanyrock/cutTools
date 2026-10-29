@@ -46,6 +46,7 @@ struct BeatView: View {
                         Button("仅启用强拍") { store.keepOnly(.strong) }
                         Button("仅启用能量转折") { store.keepOnly(.transition) }
                         Button("仅启用强拍与转折") { store.keepOnly(.highlights) }
+                        Button("仅启用手动标记") { store.keepOnly(.manual) }
                         Button("启用全部") { store.keepOnly(.all) }
                     }.fixedSize()
                     Button { store.undoSelection() } label: { Image(systemName:"arrow.uturn.backward") }.disabled(store.selectionUndo == nil).help("撤销上次批量保留")

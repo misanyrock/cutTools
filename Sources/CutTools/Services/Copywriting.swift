@@ -15,7 +15,7 @@ struct ScriptScene: Codable, Identifiable, Equatable {
     var spoken: String
     var visual: String
     var caption: String
-    enum CodingKeys: String,CodingKey { case seconds,spoken,visual,caption }
+    enum CodingKeys: String,CodingKey { case id,seconds,spoken,visual,caption }
 }
 struct CopyDraft: Codable, Equatable {
     var title: String
@@ -27,14 +27,14 @@ struct CopyDraft: Codable, Equatable {
     func validated() throws -> Self {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               (1...6).contains(openings.count), openings.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 2000 }),
-              (1...30).contains(scenes.count), scenes.allSatisfy({ (1...600).contains($0.seconds) && !$0.spoken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.spoken.count <= 10000 }) else { throw StudioError.message("模型输出缺少有效的开头或分镜，请重新生成；已有文案已保留") }
+              (1...30).contains(scenes.count), Set(scenes.map(\.id)).count == scenes.count, scenes.allSatisfy({ (1...600).contains($0.seconds) && !$0.spoken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.spoken.count <= 10000 }) else { throw StudioError.message("模型输出缺少有效的开头或分镜，请重新生成；已有文案已保留") }
         return self
     }
     var markdown: String {
         "# \(title)\n\n## 口播稿\n\n\(spokenText)\n\n## 开头备选\n\n" + openings.enumerated().map { "\($0.offset+1). \($0.element)" }.joined(separator: "\n") + "\n\n## 分镜计划（\(plannedSeconds) 秒）\n\n" + scenes.enumerated().map { i,s in "### \(i+1) · \(s.seconds) 秒\n\n口播：\(s.spoken)\n\n画面：\(s.visual)\n\n屏幕文字：\(s.caption)" }.joined(separator: "\n\n")
     }
 }
-struct CopyProject: Codable { var brief: CopyBrief; var draft: CopyDraft }
+struct CopyProject: Codable { var brief: CopyBrief; var draft: CopyDraft; var versions: [CopyVersion]? = nil }
 
 enum CopywritingService {
     static func prompt(_ brief: CopyBrief) throws -> String {

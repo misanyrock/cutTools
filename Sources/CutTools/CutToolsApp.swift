@@ -17,6 +17,8 @@ struct ContentView: View {
     @State private var queueExpanded = false
     @StateObject private var beats = BeatStore()
     @StateObject private var copy = CopyStore()
+    @StateObject private var montage = MontageStore()
+    var mediaTool: Bool { ["字幕","视频","编辑","创作"].contains(tab ?? "") }
     var body: some View {
         NavigationSplitView {
             VStack(spacing:0) {
@@ -28,6 +30,7 @@ struct ContentView: View {
                 List(selection:$tab) {
                     Section("创作") {
                         Label("音乐卡点",systemImage:"waveform").tag("卡点")
+                        Label("卡点排镜",systemImage:"film.stack").tag("排镜")
                         Label("从零写稿",systemImage:"square.and.pencil").tag("文案")
                     }
                     Section("整理与交付") {
@@ -46,14 +49,14 @@ struct ContentView: View {
         } detail: {
             VStack(spacing:0) {
                 HStack(spacing:0) {
-                    if tab != "卡点" && tab != "文案" { sidebar.frame(width:170); Divider() }
+                    if mediaTool { sidebar.frame(width:170); Divider() }
                     center.frame(minWidth:360,maxWidth:.infinity,maxHeight:.infinity,alignment:.top)
-                    if tab != "卡点" && tab != "文案" { Divider(); inspector.frame(width:260) }
+                    if mediaTool { Divider(); inspector.frame(width:260) }
                 }.frame(maxHeight:.infinity)
                 if queueExpanded || w.isRunning { Divider(); queue.frame(height:120).background(.regularMaterial) }
                 Divider()
                 HStack(spacing:10) {
-                    Circle().fill(w.isRunning || beats.busy || copy.busy ? Color.orange : Color.indigo).frame(width:6,height:6)
+                    Circle().fill(w.isRunning || beats.busy || copy.busy || montage.busy ? Color.orange : Color.indigo).frame(width:6,height:6)
                     Text(statusText).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(statusText)
                     Spacer(minLength:10)
                     Button { queueExpanded.toggle() } label: { Label("任务 \(w.jobs.count)",systemImage:"tray.full") }.buttonStyle(.plain).font(.caption)
@@ -65,7 +68,7 @@ struct ContentView: View {
         .navigationTitle("CutTools")
         .onChange(of:w.jobs.count) { _, count in if count > 0 { queueExpanded = true } }
         .onDrop(of:[.fileURL],isTargeted:nil) { providers in
-            if tab == "文案" { return false }
+            if tab == "文案" || tab == "排镜" { return false }
             for provider in providers { _ = provider.loadObject(ofClass:URL.self) { url,_ in if let url { Task { @MainActor in if tab == "卡点" { beats.load(url) } else { w.importURL(url) } } } } }
             return true
         }
@@ -73,6 +76,7 @@ struct ContentView: View {
     var statusText: String {
         if tab == "卡点" { return beats.message }
         if tab == "文案" { return copy.message }
+        if tab == "排镜" { return montage.message }
         return w.message
     }
     var sidebar: some View {
@@ -91,7 +95,8 @@ struct ContentView: View {
     var center: some View {
         VStack(alignment:.leading,spacing:20) {
             if tab == "卡点" { BeatView(store:beats) }
-            else if tab == "文案" { CopywritingView(store:copy) }
+            else if tab == "文案" { CopywritingView(store:copy,beats:beats) }
+            else if tab == "排镜" { MontageView(store:montage,beats:beats,openMusic:{ tab = "卡点" }) }
             else if tab == "字幕" { subtitleView }
             else if tab == "编辑" { editorView }
             else if tab == "创作" { StudioView() }

@@ -23,6 +23,22 @@ final class SubtitleTests: XCTestCase {
 }
 
 final class StudioTests: XCTestCase {
+    func testSubtitleXMLAlignsEndpointsToFrames() throws {
+        let cues = [
+            Cue(start: 7.18, end: 9.36, text: "中文\nEnglish", sourceNumber: 1),
+            Cue(start: 9.36, end: 11.70, text: "下一句", sourceNumber: 2),
+            Cue(start: 11.70, end: 11.701, text: "短句", sourceNumber: 3)
+        ]
+        let xml = StyledSubtitles.fcpxml(cues, style: SubtitleStyle(), width: 1920, height: 1080)
+        let document = try XMLDocument(xmlString: xml)
+        let titles = try document.nodes(forXPath: "//title").map { $0 as! XMLElement }
+        XCTAssertEqual(titles.map { $0.attribute(forName: "offset")?.stringValue }, ["180/25s", "234/25s", "293/25s"])
+        XCTAssertEqual(titles.map { $0.attribute(forName: "duration")?.stringValue }, ["54/25s", "59/25s", "1/25s"])
+        XCTAssertEqual(try document.nodes(forXPath: "//sequence/@duration").first?.stringValue, "294/25s")
+        XCTAssertEqual(try document.nodes(forXPath: "//gap/@duration").first?.stringValue, "294/25s")
+        XCTAssertEqual(try document.nodes(forXPath: "//title[1]/text/text-style").first?.stringValue, "中文\nEnglish")
+    }
+
     func testDeletionMergesAndClamps() {
         let cuts = [TimeRange(start: -1,end: 3,reason: "a",selected: true), TimeRange(start: 2,end: 5,reason: "b",selected: true), TimeRange(start: 8,end: 15,reason: "c",selected: true)]
         let kept = Timeline.kept(cuts, duration: 10)

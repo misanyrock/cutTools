@@ -84,10 +84,15 @@ enum StyledSubtitles {
     }
     static func xmlEscape(_ s: String) -> String { s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;") }
     static func fcpxml(_ cues: [Cue], style: SubtitleStyle, width: Int, height: Int) -> String {
-        func t(_ n: Double) -> String { "\(Int((n*1000).rounded()))/1000s" }
-        let end = cues.map(\.end).max() ?? 1
-        let titles = cues.enumerated().map { i,c in """
-        <title ref="r2" lane="1" offset="\(t(c.start))" duration="\(t(c.end-c.start))" name="字幕 \(i+1)"><text><text-style ref="ts\(i)">\(xmlEscape(c.text))</text-style></text><text-style-def id="ts\(i)"><text-style font="PingFang SC" fontSize="\(Int(style.chineseSize))" fontColor="1 1 1 1" alignment="center"/></text-style-def></title>
+        func t(_ frame: Int) -> String { "\(frame)/25s" }
+        let timedCues = cues.map { cue in
+            let start = max(0, Int((cue.start * 25).rounded()))
+            let end = max(start + 1, Int((cue.end * 25).rounded()))
+            return (cue: cue, start: start, end: end)
+        }
+        let end = timedCues.map(\.end).max() ?? 25
+        let titles = timedCues.enumerated().map { i,c in """
+        <title ref="r2" lane="1" offset="\(t(c.start))" duration="\(t(c.end-c.start))" name="字幕 \(i+1)"><text><text-style ref="ts\(i)">\(xmlEscape(c.cue.text))</text-style></text><text-style-def id="ts\(i)"><text-style font="PingFang SC" fontSize="\(Int(style.chineseSize))" fontColor="1 1 1 1" alignment="center"/></text-style-def></title>
         """ }.joined(separator: "\n")
         return """
         <?xml version="1.0" encoding="UTF-8"?>

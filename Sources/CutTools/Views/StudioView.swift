@@ -6,7 +6,8 @@ struct StudioView: View {
     @EnvironmentObject var ai: AIModelStore
     @State private var section = "AI 字幕"
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 20) {
+            WorkspaceHeader(title:"工具箱",subtitle:"整理字幕、准备画面，检查交付前的细节。",symbol:"square.grid.2x2")
             Picker("工作区", selection: $section) { ForEach(["AI 字幕","字幕样式","口播粗剪","成片检查"], id: \.self) { Text($0) } }.pickerStyle(.segmented)
             if w.studioBusy { HStack { ProgressView().controlSize(.small); Text(w.studioProgress); Spacer(); Button("取消") { w.cancel() } } }
             ScrollView {

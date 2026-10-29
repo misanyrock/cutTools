@@ -1,12 +1,182 @@
 # CutTools · 视频整理与交付
 
-原生 SwiftUI macOS 应用，要求 macOS 14+、Xcode 命令行工具。本地构建：
+原生 SwiftUI macOS 应用，提供音乐卡点、字幕整理、文案创作与视频交付。
+
+## 本机配置与首次运行
+
+### 1. 环境要求
+
+| 项目 | 要求 |
+| --- | --- |
+| 系统 | 工程最低部署目标为 macOS 14；其他系统版本仍需实机验证 |
+| 处理器 | 当前构建产物为 Apple Silicon（arm64）；Intel 版本未验证 |
+| 使用已构建应用 | 双击 `dist/CutTools.app`，无需安装 Xcode 或保持 Codex 运行 |
+| 从源码构建 | Xcode 或包含 macOS SDK、Swift 5.9+ 的 Command Line Tools |
+| 音乐卡点、视频处理、粗剪、成片检查 | 本机 FFmpeg；字幕烧录额外要求 FFmpeg 启用 libass / `subtitles` 滤镜 |
+| 本地语音转字幕 | FFmpeg、whisper.cpp 的 `whisper-cli` 和 ggml 模型文件 |
+| 翻译、完整 AI 写稿 | 本地 Ollama + 已下载模型，或在线模型服务 + API Key，任选一种 |
+| FCP 时间线导入 | 另需安装 Final Cut Pro；导入兼容性尚待在目标版本验证 |
+
+字幕编辑、独立 SRT/ASS 导出和写作提纲不需要安装 AI 模型。模型文件与第三方程序未打包进 `.app`；复制到其他 Mac 后仍需配置对应依赖。原始素材应保留在可访问的位置，标记工程与 FCPXML 引用它们，不包含音视频文件。
+
+开发机在 2026-10-29 检查到的环境为 Apple Silicon、macOS 27.2、Xcode 27.1、FFmpeg 9.0.2；这些是实测环境，不是最低版本要求。该 FFmpeg 支持 `cropdetect`，未启用 `subtitles`。
+
+### 2. 获取源码、构建与启动
+
+首次从源码开始时：
 
 ```sh
+git clone https://github.com/misanyrock/cutTools.git
+cd cutTools
+xcode-select --install
+```
+
+已安装开发工具时跳过安装命令。检查工具链，再构建：
+
+```sh
+xcode-select -p
+swift --version
 ./script/build_and_run.sh
 ```
 
-应用位于 `dist/CutTools.app`。如果在受限的自动化沙箱内启动时报 Launch Services -10827，可从 Finder 双击应用；这次已通过桌面启动并查看原生窗口。
+构建脚本会退出已有 CutTools 进程，重新构建、生成 `dist/CutTools.app`、复制图标、完成本地临时签名并启动。运行前先保存音乐标记工程；文案草稿自动保存于本机。
+
+只构建或运行诊断：
+
+```sh
+./script/build_and_run.sh --build
+./script/build_and_run.sh --verify
+./script/build_and_run.sh --debug
+./script/build_and_run.sh --logs
+```
+
+`--build` 只生成应用；`--verify` 启动并检查进程；`--debug` 进入 LLDB；`--logs` 查看运行日志。这些是分别按需执行的命令。
+
+当前应用仅做本地临时签名，尚未完成 Developer ID 签名与公证。若在受限自动化环境启动时报 Launch Services `-10827`，可从 Finder 打开 `dist/CutTools.app`。其他 Mac 的系统安全检查与运行兼容性仍需单独验证。
+
+### 3. 配置 FFmpeg
+
+如未安装 Homebrew，先按 [Homebrew 官网](https://brew.sh/) 配置。只使用普通视频处理与音乐分析，可安装：
+
+```sh
+brew install ffmpeg
+command -v ffmpeg
+ffmpeg -version
+```
+
+应用依次查找以下位置的 `ffmpeg` / `ffprobe`：
+
+```text
+/opt/homebrew/bin/
+/usr/local/bin/
+/usr/bin/
+```
+
+应用当前没有自定义 FFmpeg 路径输入框，也不会读取终端的任意 PATH。将程序安装或链接到上述目录后重启应用；Apple Silicon 的 Homebrew 通常使用 `/opt/homebrew/bin`。
+
+**需要烧录字幕时**，先检查当前版本是否有 `subtitles`：
+
+```sh
+ffmpeg -hide_banner -filters 2>&1 | sed -n '/subtitles/p'
+```
+
+没有输出即不能烧录；单独安装 `libass` 不会给已经编译好的 FFmpeg 增加滤镜。可按 [Homebrew ffmpeg-full 说明](https://formulae.brew.sh/formula/ffmpeg-full) 安装完整版：
+
+```sh
+brew install ffmpeg-full
+```
+
+`ffmpeg-full` 为 keg-only，安装后不会自动进入应用查找的目录。若已经安装普通 `ffmpeg`，先解除其链接：
+
+```sh
+brew unlink ffmpeg
+```
+
+再链接完整版；以下操作会把 Homebrew 的默认 FFmpeg 命令切换为完整版：
+
+```sh
+brew link --force ffmpeg-full
+command -v ffmpeg
+ffmpeg -hide_banner -filters 2>&1 | sed -n '/subtitles/p'
+```
+
+确认命令位置属于应用查找的目录，且检查结果包含 `subtitles`，再重启 CutTools。其他工具若调用同一 FFmpeg 路径，也会使用新版本。暂时不配置 libass 时，仍可导出独立 ASS/SRT 字幕。
+
+### 4. 配置本地语音转字幕（可选）
+
+参考 [whisper.cpp 官方仓库](https://github.com/ggml-org/whisper.cpp)，在项目外的独立目录安装；不需要把程序或模型提交进 CutTools 仓库。以下从你选定的工具存放目录执行：
+
+```sh
+brew install cmake
+git clone https://github.com/ggml-org/whisper.cpp.git
+cd whisper.cpp
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j 4
+sh ./models/download-ggml-model.sh base
+./build/bin/whisper-cli --help
+```
+
+在 CutTools 的「创作与检查 → AI 字幕」配置：
+
+| 字段 | 选择内容 |
+| --- | --- |
+| whisper-cli 路径 | 上述目录中的 `build/bin/whisper-cli` 可执行文件 |
+| ggml 模型文件 | 上述目录中的 `models/ggml-base.bin`，或其他已下载的兼容模型 |
+| 原语言 | 与素材一致的中文或英文 |
+
+`base` 为多语言入门模型；中文不要选择名字带 `.en` 的纯英文模型。更大的模型会增加下载量、内存占用与运行时间，按机器能力选择。模型文件保持原位；移动后需在应用中重新选择路径。配置并保存后，选择视频，再点击转写。
+
+### 5. 配置本地 Ollama（可选）
+
+从 [Ollama 官方 macOS 下载页](https://ollama.com/download/mac) 安装并打开应用，完成命令行工具设置后检查：
+
+```sh
+command -v ollama
+ollama pull qwen3:8b
+ollama list
+curl --max-time 10 http://127.0.0.1:11434/api/tags
+```
+
+`qwen3:8b` 是 CutTools 的默认示例模型，也可换成已下载的其他中文文本模型；模型大小应与本机可用内存匹配。若本机服务未启动，可打开 Ollama 应用，或在独立终端运行 `ollama serve`；已有服务运行时无需重复启动。具体安装与运行方式见 [Ollama 官方快速开始](https://docs.ollama.com/quickstart)。
+
+在「CutTools → Settings…」（⌘,）选择「本地 Ollama」：
+
+- Base URL：`http://127.0.0.1:11434`。
+- 模型名：与 `ollama list` 中的名称一致，例如 `qwen3:8b`。
+- API Key：不需要。
+
+点击「测试模型」，成功后可在翻译与从零写稿中使用。请使用本地模型；应用不会替你下载模型。
+
+### 6. 配置在线模型（可选）
+
+不安装 Ollama 也能使用在线翻译与完整 AI 写稿。先在相应服务商开通模型并取得 API Key，在 CutTools 的设置中填写：
+
+| 服务商 | 默认 Base URL | 模型字段 |
+| --- | --- | --- |
+| DeepSeek | `https://api.deepseek.com` | 默认 `deepseek-flash`，或账号可用的模型名 |
+| 千问 / 阿里云百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 默认 `qwen-plus`，或账号可用的模型名 |
+| 豆包 / 火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` | 控制台已开通的模型名或推理接入点 ID |
+| 其他兼容接口 | 服务商提供的 HTTPS Base URL | 对应的文本模型名 |
+
+API Key 输入后必须点击「保存 API Key」，再点击「发送测试请求」。千问的 Key 与地域需匹配；若使用业务空间专属域名，以控制台提供的地址为准。豆包的模型/接入点需先在控制台开通。密钥不要写入 README、源码或 Git 提交，也不需要设置在环境变量中；当前应用从 macOS 钥匙串读取它。
+
+在线模式会把文案需求、素材文字或字幕与术语表发送至配置的服务地址，测试请求与正式调用都可能计费。不同服务商/地址的 Key 分别保存；修改 Base URL 后重新保存对应 Key。应用只支持 HTTPS、非流式文本 Chat Completions，不能直接接 Responses-only 或仅支持流式的模型。
+
+### 7. 首次使用检查与常见问题
+
+| 现象 | 检查方式 |
+| --- | --- |
+| 应用提示未找到 FFmpeg | 检查二进制是否在上述三个固定目录；仅修改 PATH 不够 |
+| 安装了 FFmpeg 仍无法烧录 | 检查实际被应用找到的版本是否包含 `subtitles`；普通版与完整版的链接可能不同 |
+| 提示 whisper-cli / 模型不存在 | 在 AI 字幕界面重新选择可执行文件及 ggml 模型，保存配置 |
+| Ollama 无法连接 | 打开服务，检查 `api/tags` 与 `ollama list`，模型名必须一致 |
+| 在线请求返回 401 / 403 | 检查已保存的 Key、服务地域及模型权限 |
+| 在线请求返回 404 | 核对 Base URL 与模型名/接入点 ID |
+| 在线请求返回 429 | 检查账户额度及调用频率 |
+| 写稿模型未配置 | 可先生成无需模型的写作提纲，或配置一个在线模型 |
+| FCPXML 提示素材离线 | 恢复原音视频文件的位置，或在 FCP 中重新链接媒体 |
+
+应用设置、预设和文案草稿保存在本机用户偏好中，API Key 存在钥匙串。Git 克隆只包含源码、测试、图标与文档，不会带走这些配置；新 Mac 需要重新配置模型路径与密钥。模型权重、原始音视频、`.build/` 和 `dist/` 都不属于源码依赖文件。
 
 ## 音乐卡点（新增）
 
@@ -22,7 +192,7 @@ FCPXML 标记结构参考 [Apple 标记说明](https://developer.apple.com/docum
 
 卡点可按强拍、能量转折、强拍与转折、手动类型筛选；列表和波形同步显示。筛选不改变启用状态。使用「批量保留」可只启用指定类型，其他类型（包括手动点）会禁用但保留；可以撤销上一次批量操作。FCPXML/CSV 始终导出全部启用点，与当前显示筛选无关。恢复标记工程后可「恢复波形（保留标记）」，无需重新生成标记。
 
-「从零写稿」填写主题、受众、目标时长、目的、风格和事实素材，使用本机 Ollama 生成多个开头与完整的口播、镜头建议和屏幕文字。可选择模型、检查服务连接。只有成功且结构有效的结果才替换旧稿；失败或取消保留旧稿，再次生成会先确认。事实不足处要求模型使用待补充标记，生成内容仍需人工核实。
+「从零写稿」填写主题、受众、目标时长、目的、风格和事实素材，使用已配置的本地或在线模型生成多个开头与完整的口播、镜头建议和屏幕文字。可选择模型、检查服务连接。只有成功且结构有效的结果才替换旧稿；失败或取消保留旧稿，再次生成会先确认。事实不足处要求模型使用待补充标记，生成内容仍需人工核实。
 
 草稿与需求自动保存在本机；支持 Markdown 导出、复制口播稿、JSON 工程保存和载入。口播时长按每秒约 3.5 字估算，实际以朗读为准。未安装本地模型时可生成写作提纲，方括号内容需要自己填写，不会伪装成 AI 初稿。AI 写稿接口通过本地与在线请求模拟测试，尚未用真实模型验收生成质量。
 
@@ -48,23 +218,15 @@ FCPXML 标记结构参考 [Apple 标记说明](https://developer.apple.com/docum
 
 - 中英 SRT 导入、时间重叠匹配（一对多标记确认）、基础问题检查、编辑时间与文字、右键合并/拆分/删除、整体偏移、独立 SRT 导出。
 - 原视频预览、保留/裁切/原比例导出、模糊背景、水平裁切位置、三处采样黑边建议、个人交付预设、避免覆盖、任务取消。
-- 创作与检查 → AI 字幕：Whisper.cpp 本地转写，Ollama 中英翻译、术语表；失败或取消不会提交不完整译文。转写成功会替换对应语言轨。
+- 创作与检查 → AI 字幕：Whisper.cpp 本地转写，本地或在线模型中英翻译、术语表；失败或取消不会提交不完整译文。转写成功会替换对应语言轨。
 - 双语字幕分别设置字号与颜色、间距、底边距离；ASS 导出与烧录；基础 FCPXML 可编辑标题时间线导出。
 - 口播粗剪：长静音、字幕中的独立口头禅和相邻相同句候选；手动勾选删除、点击文字定位、重新编码导出，并重算中英字幕时间。长静音默认保留两端 0.15 秒。
 - 成片检查：黑场、静音、音频满幅峰值风险、字幕超时及可能换行提示；定位与文本报告导出。检测结果均需人工确认。
-
-## 本地依赖
-
-FFmpeg 从 `/opt/homebrew/bin`、`/usr/local/bin`、`/usr/bin` 查找。烧录需要 `subtitles` 滤镜及 libass，当前本机版本不包含该滤镜，应用会明确提示；可以先导出 ASS。
-
-转写需要自行安装 [Whisper.cpp](https://github.com/ggml-org/whisper.cpp) 并下载 ggml 模型，再在 AI 工作区选择 `whisper-cli` 和模型文件。根据源语言选择中文或英文。
-
-翻译和写稿均可选本地 Ollama 或在线模型，详见上方统一模型配置。Ollama 需要安装并下载本地模型，应用不会自动下载；在线模式需要提供对应服务的 API Key。
 
 ## 验证与限制
 
 `swift test --disable-sandbox` 包含字幕解析、匹配、区间合并、字幕时间重算、检测日志、ASS 转义与实际 FFmpeg 黑场/静音分析和粗剪导出测试。
 
-已验证编译和原生窗口。Whisper/Ollama 未在本机安装，尚未完成真实模型端到端验收。FCPXML 为基础标题模板，当前沿用中文字号和白色，不承诺不同 FCP 版本导入兼容；需在目标 Final Cut Pro 中确认。ASS 支持独立中英样式。
+已验证编译和原生窗口；自动化测试覆盖处理逻辑和模拟模型接口，真实模型生成质量、在线账户权限仍需按实际配置验收。FCPXML 为基础标题模板，当前沿用中文字号和白色，不承诺不同 FCP 版本导入兼容；需在目标 Final Cut Pro 中确认。ASS 支持独立中英样式。
 
 仍待补齐第一版细节：手动重新配对、逐项修复及前后对比、实时导出百分比与体积估算、失败重试。视频播放窗口显示原视频；10 秒导出预览用于核对实际适配和烧录结果。批量导出将同一字幕轨应用于所有输入视频；不同视频请分别处理。粗剪先重编码各段再合并，切点精度受帧率和音频帧边界影响。字幕溢出提示是文字长度估算，不是逐像素检测。

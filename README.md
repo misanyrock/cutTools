@@ -10,7 +10,6 @@
 | --- | --- |
 | 系统 | 工程最低部署目标为 macOS 14；其他系统版本仍需实机验证 |
 | 处理器 | 当前构建产物为 Apple Silicon（arm64）；Intel 版本未验证 |
-| 使用已构建应用 | 双击 `dist/CutTools.app`，无需安装 Xcode 或保持 Codex 运行 |
 | 从源码构建 | Xcode 或包含 macOS SDK、Swift 5.9+ 的 Command Line Tools |
 | 音乐卡点、视频处理、粗剪、成片检查 | 本机 FFmpeg；字幕烧录额外要求 FFmpeg 启用 libass / `subtitles` 滤镜 |
 | 本地语音转字幕 | FFmpeg、whisper.cpp 的 `whisper-cli` 和 ggml 模型文件 |

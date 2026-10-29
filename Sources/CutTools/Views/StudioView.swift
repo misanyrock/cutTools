@@ -33,7 +33,7 @@ struct StudioView: View {
             Text("当前模型：\(ai.config.provider.title) · \(ai.config.model)。译文全部成功后才替换目标语言轨。在线模式会将字幕与术语表发送至 \(ai.config.baseURL)，可能计费。").font(.callout).foregroundStyle(.secondary)
             SettingsLink { Text("模型与 API Key 设置…") }
             Text("术语表：每行一项，例如 Final Cut Pro = Final Cut Pro").font(.caption)
-            TextEditor(text: $w.glossary).font(.body.monospaced()).frame(height: 100).border(.secondary.opacity(0.3))
+            InsetTextEditor(text: $w.glossary, monospaced: true, accessibilityLabel: "翻译术语表").frame(height: 100).border(.secondary.opacity(0.3))
             HStack { Button("中文 → 英文") { translate(true) }; Button("英文 → 中文") { translate(false) }; Button("保存配置") { w.saveAISettings() } }.disabled(w.studioBusy || w.isRunning)
         }
     }

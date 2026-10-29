@@ -22,7 +22,7 @@ struct CopywritingView: View {
                         Stepper("目标时长：\(store.brief.seconds) 秒",value: $store.brief.seconds,in: 15...600,step: 15)
                         Picker("风格",selection: $store.brief.tone) { ForEach(["自然口语","温暖叙事","简洁有力","轻松幽默","专业清晰"],id: \.self) { Text($0).tag($0) } }
                         Text("事实与素材（人、事、观点、产品信息）").font(.caption)
-                        TextEditor(text: $store.brief.facts).frame(height: 120).border(.secondary.opacity(0.3))
+                        InsetTextEditor(text: $store.brief.facts, accessibilityLabel: "事实与素材").frame(height: 120).border(.secondary.opacity(0.3))
                         TextField("必须包含 / 不要出现的内容",text: $store.brief.restrictions,axis: .vertical)
                         Divider(); Text("当前模型：\(ai.config.provider.title)").font(.headline)
                         Text(ai.config.model.isEmpty ? "请配置模型" : ai.config.model).foregroundStyle(.secondary)
@@ -62,7 +62,7 @@ struct CopywritingView: View {
                         VStack(alignment: .leading,spacing: 6) {
                             Stepper("片段时长：\(scene.wrappedValue.seconds) 秒",value: scene.seconds,in: 1...600)
                             Text("口播").font(.caption).foregroundStyle(.secondary)
-                            TextEditor(text: scene.spoken).frame(minHeight: 80).border(.secondary.opacity(0.25))
+                            InsetTextEditor(text: scene.spoken, accessibilityLabel: "口播文字").frame(height: 100).border(.secondary.opacity(0.25))
                             TextField("画面与镜头建议",text: scene.visual,axis: .vertical)
                             TextField("屏幕文字",text: scene.caption,axis: .vertical)
                         }.padding(12).background(.quaternary.opacity(0.4),in: RoundedRectangle(cornerRadius: 8))

@@ -2,6 +2,21 @@ import XCTest
 @testable import CutTools
 
 final class MediaIntegrationTests: XCTestCase {
+    @MainActor func testTranscriptionAcceptsInstalledCommandName() async throws {
+        let w = Workspace()
+        guard w.ffmpeg != nil else { throw XCTSkip("本机未安装 FFmpeg") }
+        let defaults = UserDefaults.standard
+        let keys = ["whisperPath", "whisperModel", "translationModel", "glossary"]
+        let original = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, original) { defaults.set(value, forKey: key) } }
+        w.selectedVideo = URL(fileURLWithPath: "/nonexistent-video.mp4")
+        w.whisperPath = "ffmpeg"
+        w.whisperModel = "/usr/bin/true"
+        w.transcribe()
+        XCTAssertNotNil(w.studioTask, w.message)
+        await w.studioTask?.value
+    }
+
     @MainActor func testQualityScanAndRoughCutExport() async throws {
         let w = Workspace()
         guard let ffmpeg = w.ffmpeg else { throw XCTSkip("本机未安装 FFmpeg") }

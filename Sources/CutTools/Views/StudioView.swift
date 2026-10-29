@@ -27,7 +27,8 @@ struct StudioView: View {
             HStack { TextField("whisper-cli 路径", text: $w.whisperPath); Button("选择程序") { w.pickModel(executable: true) } }
             HStack { TextField("ggml 模型文件", text: $w.whisperModel); Button("选择模型") { w.pickModel(executable: false) } }
             Picker("原语言", selection: $w.language) { Text("中文").tag("zh"); Text("英文").tag("en") }.frame(width: 200)
-            Button("转写选中的视频") { w.transcribe() }.disabled(w.studioBusy || w.isRunning)
+            Button("转写选中的视频") { w.transcribe() }.buttonStyle(.borderedProminent).disabled(w.studioBusy || w.isRunning)
+            Text(w.message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             Link("Whisper.cpp 安装与模型说明", destination: URL(string: "https://github.com/ggml-org/whisper.cpp")!)
             Divider()
             Text("翻译与术语表").font(.title2.bold())

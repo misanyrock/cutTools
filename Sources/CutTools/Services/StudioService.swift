@@ -36,9 +36,10 @@ extension Workspace {
     }
     func transcribe() {
         guard let url = selectedVideo, let ffmpeg else { message = "先选择视频并配置 FFmpeg"; return }
-        guard FileManager.default.isExecutableFile(atPath: whisperPath), FileManager.default.fileExists(atPath: whisperModel) else { message = "请在 AI 设置中选择 whisper-cli 和已下载的 ggml 模型文件"; return }
+        let executable = whisperPath.contains("/") ? whisperPath : (self.executable(whisperPath) ?? whisperPath)
+        guard FileManager.default.isExecutableFile(atPath: executable), FileManager.default.fileExists(atPath: whisperModel) else { message = "请选择可执行的 whisper-cli 和已下载的 ggml 模型文件"; return }
         saveAISettings()
-        let executable = whisperPath, model = whisperModel, lang = language
+        let model = whisperModel, lang = language
         studio {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

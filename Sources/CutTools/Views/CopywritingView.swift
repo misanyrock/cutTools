@@ -4,6 +4,7 @@ struct CopywritingView: View {
     @EnvironmentObject var ai: AIModelStore
     @ObservedObject var store: CopyStore
     @ObservedObject var beats: BeatStore
+    @ObservedObject var voiceover: VoiceoverStore
     @State private var showHistory = false
     @State private var showTemplateName = false
     @State private var showAlignment = false
@@ -45,7 +46,7 @@ struct CopywritingView: View {
                         Text(ai.config.provider == .ollama ? "使用本机模型生成。" : "需求和素材将发送至 \(ai.config.baseURL)，调用可能计费。").font(.caption).foregroundStyle(.secondary).lineLimit(3)
                         Button { generate(offline:false) } label: { Label("生成完整初稿",systemImage:"sparkles").frame(maxWidth:.infinity) }.buttonStyle(.borderedProminent).controlSize(.large).disabled(store.brief.topic.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
                         Button("先生成写作提纲") { generate(offline:true) }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary).frame(maxWidth:.infinity).help("无需模型；生成需要自行填写的提纲")
-                    }.disabled(store.busy)
+                    }.disabled(store.busy || voiceover.busy)
                 }.frame(width:296)
                 if let draft = store.draft { editor(Binding(get:{ store.draft ?? draft },set:{ store.draft = $0 })) }
                 else { emptyDraft }
@@ -93,6 +94,7 @@ struct CopywritingView: View {
                 MetricPill(title:"计划 \(draft.wrappedValue.plannedSeconds) 秒",symbol:"clock")
                 MetricPill(title:"口播约 \(draft.wrappedValue.estimatedSeconds) 秒",symbol:"waveform")
             }
+            VoiceoverPanel(store: voiceover, text: draft.wrappedValue.spokenText)
             ScrollView {
                 VStack(alignment:.leading,spacing:16) {
                     Surface(padding:16) {

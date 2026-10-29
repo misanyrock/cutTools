@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var queueExpanded = false
     @StateObject private var beats = BeatStore()
     @StateObject private var copy = CopyStore()
+    @StateObject private var voiceover = VoiceoverStore()
     @StateObject private var montage = MontageStore()
     var mediaTool: Bool { ["字幕","视频","编辑","创作"].contains(tab ?? "") }
     var body: some View {
@@ -29,9 +30,9 @@ struct ContentView: View {
                 }.padding(.horizontal,18).padding(.top,20).padding(.bottom,24)
                 List(selection:$tab) {
                     Section("创作") {
+                        Label("从零写稿",systemImage:"square.and.pencil").tag("文案")
                         Label("音乐卡点",systemImage:"waveform").tag("卡点")
                         Label("卡点排镜",systemImage:"film.stack").tag("排镜")
-                        Label("从零写稿",systemImage:"square.and.pencil").tag("文案")
                     }
                     Section("整理与交付") {
                         Label("双语字幕",systemImage:"captions.bubble").tag("字幕")
@@ -95,7 +96,7 @@ struct ContentView: View {
     var center: some View {
         VStack(alignment:.leading,spacing:20) {
             if tab == "卡点" { BeatView(store:beats) }
-            else if tab == "文案" { CopywritingView(store:copy,beats:beats) }
+            else if tab == "文案" { CopywritingView(store:copy,beats:beats,voiceover:voiceover) }
             else if tab == "排镜" { MontageView(store:montage,beats:beats,openMusic:{ tab = "卡点" }) }
             else if tab == "字幕" { subtitleView }
             else if tab == "编辑" { editorView }

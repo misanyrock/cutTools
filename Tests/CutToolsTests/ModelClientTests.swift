@@ -31,6 +31,7 @@ final class ModelClientTests: XCTestCase {
         let remoteOllama = ModelConfiguration(provider:.ollama,baseURL:"http://example.test",model:"test")
         XCTAssertThrowsError(try remoteOllama.endpoint("api/generate"))
         XCTAssertThrowsError(try ModelClient.request(prompt:"JSON",config:ModelProvider.deepseek.defaults,key:""))
+        XCTAssertThrowsError(try ModelClient.request(prompt:"JSON",config:ModelProvider.deepseek.defaults,key:"key\r\ninjected"))
     }
     func testFullEndpointIsNotAppendedTwiceAndKeyAccountsAreIsolated() throws {
         let a = ModelConfiguration(provider:.compatible,baseURL:"https://one.test/v1/chat/completions",model:"m")

@@ -69,7 +69,7 @@ enum ModelClient {
         var body: [String:Any]
         if local { body = ["model":config.model,"prompt":prompt,"stream":false,"format":"json","options":["num_predict":6000]] }
         else {
-            guard !key.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, !key.contains("\n"), !key.contains("\r") else { throw StudioError.message("请在模型设置中保存有效 API Key") }
+            guard !key.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, key.rangeOfCharacter(from: .newlines) == nil else { throw StudioError.message("请在模型设置中保存有效 API Key") }
             request.setValue("Bearer \(key)",forHTTPHeaderField:"Authorization")
             body = ["model":config.model,"messages":[["role":"user","content":prompt]],"stream":false]
             if config.provider == .qwen { body["enable_thinking"] = false }

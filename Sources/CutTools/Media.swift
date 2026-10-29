@@ -37,6 +37,7 @@ struct Job: Identifiable {
     @Published var isRunning = false
     @Published var presetNames: [String] = []
     @Published var style: SubtitleStyle = (UserDefaults.standard.data(forKey: "subtitleStyle").flatMap { try? JSONDecoder().decode(SubtitleStyle.self, from: $0) }) ?? SubtitleStyle()
+    @Published var subtitleExport = SubtitleExportSettings()
     var cutsVideo: URL?
     @Published var cuts: [TimeRange] = []
     @Published var findings: [CheckFinding] = []

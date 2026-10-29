@@ -7,6 +7,16 @@ struct SubtitleStyle: Codable {
     var englishColor = "FFFF99"
     var bottom = 50
     var gap = 8
+    var chineseBottom: Double?
+    var englishBottom: Double?
+    var chineseX: Double?
+    var englishX: Double?
+
+    func bottom(chinese: Bool, chineseFirst: Bool, bilingual: Bool) -> Double {
+        let custom = chinese ? chineseBottom : englishBottom
+        return custom ?? (Double(bottom) + (bilingual && chinese == chineseFirst ? (chinese ? englishSize : chineseSize) + Double(gap) : 0))
+    }
+    func x(chinese: Bool) -> Double { (chinese ? chineseX : englishX) ?? 0 }
 }
 struct TimeRange: Identifiable, Equatable {
     let id = UUID()
@@ -63,8 +73,9 @@ enum StyledSubtitles {
         func color(_ hex: String) -> String { let clean = hex.uppercased().filter { $0.isHexDigit }; guard clean.count == 6 else { return "&H00FFFFFF" }; let chars = Array(clean); return "&H00" + String(chars[4...5]) + String(chars[2...3]) + String(chars[0...1]) }
         func time(_ t: Double) -> String { let n = max(0, Int(t*100)); return String(format: "%d:%02d:%02d.%02d", n/360000,n/6000%60,n/100%60,n%100) }
         func escape(_ s: String) -> String { s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "{", with: "\\{").replacingOccurrences(of: "}", with: "\\}").replacingOccurrences(of: "\n", with: "\\N") }
-        let zhMargin = style.bottom + (chineseFirst && !en.isEmpty ? Int(style.englishSize) + style.gap : 0)
-        let enMargin = style.bottom + (!chineseFirst && !zh.isEmpty ? Int(style.chineseSize) + style.gap : 0)
+        let bilingual = !zh.isEmpty && !en.isEmpty
+        let zhMargin = Int(style.bottom(chinese: true, chineseFirst: chineseFirst, bilingual: bilingual))
+        let enMargin = Int(style.bottom(chinese: false, chineseFirst: chineseFirst, bilingual: bilingual))
         var text = """
         [Script Info]
         ScriptType: v4.00+
@@ -79,25 +90,55 @@ enum StyledSubtitles {
         Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         """
-        for (name,cues) in [("Chinese",zh),("English",en)] { for c in cues { text += "Dialogue: 0,\(time(c.start)),\(time(c.end)),\(name),,0,0,0,,\(escape(c.text))\n" } }
+        for (name,cues) in [("Chinese",zh),("English",en)] {
+            let chinese = name == "Chinese"
+            let x = Double(width) / 2 + style.x(chinese: chinese)
+            let y = Double(height) - style.bottom(chinese: chinese, chineseFirst: chineseFirst, bilingual: bilingual)
+            for c in cues {
+                let wrapped = SubtitleLayout.wrapped(c.text, chinese: chinese, size: chinese ? style.chineseSize : style.englishSize, width: Double(width) - 80)
+                text += "Dialogue: 0,\(time(c.start)),\(time(c.end)),\(name),,0,0,0,,{\\an2\\pos(\(x),\(y))}\(escape(wrapped))\n"
+            }
+        }
         return text
     }
     static func xmlEscape(_ s: String) -> String { s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;") }
-    static func fcpxml(_ cues: [Cue], style: SubtitleStyle, width: Int, height: Int) -> String {
-        func t(_ frame: Int) -> String { "\(frame)/25s" }
-        let timedCues = cues.map { cue in
-            let start = max(0, Int((cue.start * 25).rounded()))
-            let end = max(start + 1, Int((cue.end * 25).rounded()))
-            return (cue: cue, start: start, end: end)
+    static func fcpxml(zh: [Cue], en: [Cue], style: SubtitleStyle, width: Int, height: Int,
+                       settings: SubtitleExportSettings = SubtitleExportSettings(), chineseFirst: Bool = true) throws -> String {
+        let cues = zh + en
+        guard !cues.isEmpty else { throw StudioError.message("请先导入或转写字幕") }
+        guard width >= 2, height >= 2, width <= 7680, height <= 7680, width % 2 == 0, height % 2 == 0,
+              cues.allSatisfy({ $0.start.isFinite && $0.end.isFinite && $0.start >= 0 && $0.end > $0.start && $0.end < 3_600_000 }),
+              [style.chineseSize, style.englishSize].allSatisfy({ $0.isFinite && (16...100).contains($0) }),
+              [style.chineseColor, style.englishColor].allSatisfy({ $0.count == 6 && $0.allSatisfy(\.isHexDigit) }),
+              [style.chineseX, style.englishX, style.chineseBottom, style.englishBottom].compactMap({ $0 }).allSatisfy({ $0.isFinite && abs($0) <= 7680 })
+        else { throw StudioError.message("请检查字幕时间、分辨率、字号、位置和六位 HEX 颜色") }
+        let rate = settings.frameRate
+        let bilingual = !zh.isEmpty && !en.isEmpty
+        var end = 1
+        var titles: [String] = []
+        for (chinese, track) in [(true, zh), (false, en)] {
+            let size = chinese ? style.chineseSize : style.englishSize
+            let color = SubtitleLayout.color(chinese ? style.chineseColor : style.englishColor).usingColorSpace(.sRGB)!
+            let rgb = "\(color.redComponent) \(color.greenComponent) \(color.blueComponent) 1"
+            let margin = style.bottom(chinese: chinese, chineseFirst: chineseFirst, bilingual: bilingual)
+            let x = style.x(chinese: chinese)
+            for cue in track {
+                let start = rate.frame(cue.start), finish = max(start + 1, rate.frame(cue.end))
+                end = max(end, finish)
+                let id = "ts\(titles.count)"
+                let text = SubtitleLayout.wrapped(cue.text, chinese: chinese, size: size, width: Double(width) - 80)
+                // Basic Title uses a centered baseline; position is in percent of frame height.
+                let baseline = SubtitleLayout.firstBaseline(text, chinese: chinese, size: size)
+                let position = "\(x / Double(height) * 100) \((margin - Double(height) / 2 + baseline) / Double(height) * 100)"
+                titles.append("""
+                <title ref="r2" lane="\(chinese ? 1 : 2)" offset="\(rate.time(start))" start="0s" duration="\(rate.time(finish-start))" name="\(chinese ? "中文" : "英文") 字幕" role="\(chinese ? "titles.Chinese" : "titles.English")"><text><text-style ref="\(id)">\(xmlEscape(text))</text-style></text><text-style-def id="\(id)"><text-style font="\(chinese ? "PingFang SC" : "Arial")" fontSize="\(size)" fontColor="\(rgb)" alignment="center" strokeColor="0 0 0 1" strokeWidth="2"/></text-style-def><adjust-transform position="\(position)"/></title>
+                """)
+            }
         }
-        let end = timedCues.map(\.end).max() ?? 25
-        let titles = timedCues.enumerated().map { i,c in """
-        <title ref="r2" lane="1" offset="\(t(c.start))" duration="\(t(c.end-c.start))" name="字幕 \(i+1)"><text><text-style ref="ts\(i)">\(xmlEscape(c.cue.text))</text-style></text><text-style-def id="ts\(i)"><text-style font="PingFang SC" fontSize="\(Int(style.chineseSize))" fontColor="1 1 1 1" alignment="center"/></text-style-def></title>
-        """ }.joined(separator: "\n")
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE fcpxml>
-        <fcpxml version="1.10"><resources><format id="r1" frameDuration="1/25s" width="\(width)" height="\(height)" colorSpace="1-1-1 (Rec. 709)"/><effect id="r2" name="Basic Title" uid=".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"/></resources><library><event name="CutTools"><project name="可编辑字幕"><sequence format="r1" duration="\(t(end))" tcStart="0s" tcFormat="NDF"><spine><gap name="字幕底轨" offset="0s" duration="\(t(end))">\(titles)</gap></spine></sequence></project></event></library></fcpxml>
+        <fcpxml version="1.10"><resources><format id="r1" frameDuration="\(rate.frameDuration)" width="\(width)" height="\(height)" colorSpace="\(settings.colorSpace.xmlValue)"/><effect id="r2" name="Basic Title" uid=".../Titles.localized/Bumper:Opener.localized/Basic Title.localized/Basic Title.moti"/></resources><library colorProcessing="\(settings.colorSpace.processing)"><event name="CutTools"><project name="可编辑双语字幕"><sequence format="r1" duration="\(rate.time(end))" tcStart="0s" tcFormat="NDF"><spine><gap name="字幕底轨" offset="0s" start="0s" duration="\(rate.time(end))">\(titles.joined(separator: "\n"))</gap></spine></sequence></project></event></library></fcpxml>
         """
     }
 }

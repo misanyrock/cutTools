@@ -42,20 +42,7 @@ struct StudioView: View {
     func translate(_ toEnglish: Bool) {
         do { let (config,key) = try ai.snapshot(); w.translate(toEnglish:toEnglish,config:config,key:key) } catch { w.message = error.localizedDescription }
     }
-    var styles: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("双语字幕样式").font(.title2.bold())
-            HStack { Text("中文字号"); Slider(value: $w.style.chineseSize, in: 16...100, step: 1); Text("\(Int(w.style.chineseSize))") }
-            HStack { Text("英文字号"); Slider(value: $w.style.englishSize, in: 16...100, step: 1); Text("\(Int(w.style.englishSize))") }
-            TextField("中文颜色（六位 HEX）", text: $w.style.chineseColor)
-            TextField("英文颜色（六位 HEX）", text: $w.style.englishColor)
-            Stepper("底边距离：\(w.style.bottom)", value: $w.style.bottom, in: 10...300)
-            Stepper("两行间距：\(w.style.gap)", value: $w.style.gap, in: 0...80)
-            VStack(spacing: CGFloat(w.style.gap)) { Text(w.chinese.first?.text ?? "每一段故事，都值得认真交付").font(.system(size: w.style.chineseSize / 2)).foregroundStyle(hexColor(w.style.chineseColor)); Text(w.english.first?.text ?? "Every story deserves a thoughtful finish.").font(.system(size: w.style.englishSize / 2)).foregroundStyle(hexColor(w.style.englishColor)) }.frame(maxWidth: .infinity).padding(24).background(.black).clipShape(RoundedRectangle(cornerRadius: 8))
-            HStack { Button("导出 ASS 样式字幕") { w.exportStyled(xml: false) }; Button("导出 FCPXML 标题") { w.exportStyled(xml: true) } }
-            Text("烧录使用上述样式。FCPXML 为独立可编辑标题时间线，当前使用基础标题模板；导入兼容性仍需在 Final Cut Pro 中验证。").font(.caption).foregroundStyle(.secondary)
-        }
-    }
+    var styles: some View { SubtitleStylePanel() }
     var roughCut: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("口播粗剪").font(.title2.bold())
@@ -78,5 +65,5 @@ struct StudioView: View {
             StudioPlayer(url: w.selectedVideo, seekTime: w.seekTime).frame(height: 240)
         }
     }
-    func hexColor(_ value: String) -> Color { let n = UInt64(value, radix: 16) ?? 0xFFFFFF; return Color(red: Double(n >> 16 & 255)/255, green: Double(n >> 8 & 255)/255, blue: Double(n & 255)/255) }
+
 }

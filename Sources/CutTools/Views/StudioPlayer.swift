@@ -7,6 +7,7 @@ import AVKit
 struct StudioPlayer: NSViewRepresentable {
     let url: URL?
     var seekTime: Double = 0
+    var subtitles: SubtitlePreview?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -15,12 +16,19 @@ struct StudioPlayer: NSViewRepresentable {
         view.controlsStyle = .inline
         view.videoGravity = .resizeAspect
         view.player = context.coordinator.player
-        context.coordinator.update(url: url, seekTime: seekTime)
+        if let overlay = view.contentOverlayView {
+            let subtitles = context.coordinator.overlay
+            subtitles.frame = overlay.bounds
+            subtitles.autoresizingMask = [.width, .height]
+            overlay.addSubview(subtitles)
+        }
+        context.coordinator.observeTime()
+        context.coordinator.update(url: url, seekTime: seekTime, subtitles: subtitles)
         return view
     }
 
     func updateNSView(_ view: AVPlayerView, context: Context) {
-        context.coordinator.update(url: url, seekTime: seekTime)
+        context.coordinator.update(url: url, seekTime: seekTime, subtitles: subtitles)
     }
 
     static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) {
@@ -32,11 +40,22 @@ struct StudioPlayer: NSViewRepresentable {
         let player = AVPlayer()
         private(set) var loadedURL: URL?
         private var lastSeek: Double?
+        let overlay = SubtitleOverlay()
+        private var timeObserver: Any?
 
-        func update(url: URL?, seekTime: Double) {
+        func observeTime() {
+            guard timeObserver == nil else { return }
+            timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
+                MainActor.assumeIsolated { self?.overlay.time = time.seconds.isFinite ? time.seconds : 0 }
+            }
+        }
+
+        func update(url: URL?, seekTime: Double, subtitles: SubtitlePreview? = nil) {
+            overlay.preview = subtitles
             let changed = loadedURL != url
             if changed {
                 player.pause()
+                overlay.time = 0
                 loadedURL = url
                 lastSeek = nil
                 if let url, url.isFileURL,
@@ -50,6 +69,7 @@ struct StudioPlayer: NSViewRepresentable {
             guard player.currentItem != nil, seekTime.isFinite, seekTime >= 0,
                   lastSeek != seekTime else { return }
             lastSeek = seekTime
+            overlay.time = seekTime
             // Loading a new video starts at zero; unrelated SwiftUI updates do
             // not seek or pause a video the user is already playing.
             if seekTime > 0 || !changed {
@@ -59,6 +79,9 @@ struct StudioPlayer: NSViewRepresentable {
         }
 
         func stop() {
+            if let timeObserver { player.removeTimeObserver(timeObserver) }
+            timeObserver = nil
+            overlay.preview = nil
             player.pause()
             player.replaceCurrentItem(with: nil)
             loadedURL = nil

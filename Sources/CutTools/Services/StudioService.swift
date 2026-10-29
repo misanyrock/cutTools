@@ -129,7 +129,7 @@ extension Workspace {
     func exportStyled(xml: Bool) {
         guard let dir = output else { message = "先选择输出目录"; return }
         do {
-            let text = xml ? StyledSubtitles.fcpxml(matched.map(\.0), style: style, width: settings.width, height: settings.height) : StyledSubtitles.ass(zh: chinese,en: english,style: style,width: settings.width,height: settings.height,chineseFirst: settings.chineseFirst)
+            let text = try xml ? StyledSubtitles.fcpxml(zh: chinese, en: english, style: style, width: settings.width, height: settings.height, settings: subtitleExport, chineseFirst: settings.chineseFirst) : StyledSubtitles.ass(zh: chinese,en: english,style: style,width: settings.width,height: settings.height,chineseFirst: settings.chineseFirst)
             try text.write(to: unique(dir,settings.name,xml ? "fcpxml" : "ass"), atomically: true, encoding: .utf8)
             message = xml ? "已导出可编辑标题 FCPXML（需在你的 FCP 版本验证）" : "已导出带样式的 ASS 字幕"
         } catch { message = error.localizedDescription }

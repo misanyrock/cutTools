@@ -2,6 +2,31 @@ import XCTest
 @testable import CutTools
 
 final class MediaIntegrationTests: XCTestCase {
+    @MainActor func testSubtitlePreviewFollowsPlaybackAndKeepsItemOnStyleChanges() async throws {
+        let w = Workspace()
+        guard let ffmpeg = w.ffmpeg else { throw XCTSkip("本机未安装 FFmpeg") }
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        defer { try? FileManager.default.removeItem(at: source) }
+        _ = try await w.checkedProcess(ffmpeg, ["-nostdin", "-y", "-f", "lavfi", "-i", "color=c=black:s=320x240:r=25:d=2", "-c:v", "libx264", source.path])
+        let coordinator = StudioPlayer.Coordinator()
+        defer { coordinator.stop() }
+        coordinator.observeTime()
+        var preview = SubtitlePreview(chinese: [Cue(start: 0, end: 2, text: "播放测试", sourceNumber: 1)], english: [], style: SubtitleStyle(), width: 1920, height: 1080, chineseFirst: true)
+        coordinator.update(url: source, seekTime: 0, subtitles: preview)
+        let item = coordinator.player.currentItem
+        coordinator.player.play()
+        for _ in 0..<40 {
+            if coordinator.overlay.time > 0.1 { break }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertGreaterThan(coordinator.overlay.time, 0.1)
+        preview.style.chineseSize = 60
+        coordinator.update(url: source, seekTime: 0, subtitles: preview)
+        XCTAssertTrue(coordinator.player.currentItem === item)
+        XCTAssertEqual(coordinator.overlay.preview?.style.chineseSize, 60)
+        XCTAssertGreaterThan(coordinator.overlay.time, 0.1, "样式更新不应重置播放进度")
+    }
+
     @MainActor func testTranscriptionAcceptsInstalledCommandName() async throws {
         let w = Workspace()
         guard w.ffmpeg != nil else { throw XCTSkip("本机未安装 FFmpeg") }

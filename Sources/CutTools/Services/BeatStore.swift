@@ -59,11 +59,18 @@ struct BeatSession: Codable {
         player.pause(); player.replaceCurrentItem(with: AVPlayerItem(url: url)); message = "已载入 \(url.lastPathComponent)，点击分析节拍"
     }
     func cancel() { task?.cancel(); if process?.isRunning == true { process?.terminate() } }
-    func analyze(ffmpeg: String?, preserveMarkers: Bool = false) {
+    func analyze(ffmpeg: String?, preserveMarkers: Bool = false, sentenceCues: [Cue]? = nil,
+                 whisper: (executable: String, model: String, language: String)? = nil) {
         guard !busy, let source else { return }
         guard let ffmpeg else { message = "未找到 FFmpeg，请先安装后再分析"; return }
+        if let whisper {
+            guard FileManager.default.isExecutableFile(atPath: whisper.executable), FileManager.default.isReadableFile(atPath: whisper.model), ["zh", "en"].contains(whisper.language) else {
+                message = "请先在工具箱 → AI 字幕中配置可执行的 whisper-cli、ggml 模型和原语言"; return
+            }
+        }
         let sensitivity = sensitivity
-        busy = true; message = "正在提取音频与分析节拍…"
+        let sentenceFPS = fps
+        busy = true; message = sentenceCues != nil || whisper != nil ? "正在提取音频与生成句子切点…" : "正在提取音频与分析节拍…"
         task = Task { @MainActor in
             defer { busy = false; process = nil }
             let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -74,6 +81,7 @@ struct BeatSession: Codable {
                 let handle = try FileHandle(forWritingTo: log); defer { try? handle.close() }
                 let p = Process(); p.executableURL = URL(fileURLWithPath: ffmpeg)
                 p.arguments = ["-hide_banner","-loglevel","error","-nostdin","-y","-i",source.path,"-t","1801","-vn","-ac","1","-ar","22050","-f","f32le",pcm.path]
+                if whisper != nil { p.arguments! += ["-t","1801","-vn","-ac","1","-ar","16000","-c:a","pcm_s16le",temp.appendingPathComponent("speech.wav").path] }
                 p.standardError = handle; p.standardOutput = FileHandle.nullDevice; process = p; try p.run()
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void,Never>) in DispatchQueue.global().async { p.waitUntilExit(); continuation.resume() } }
                 try Task.checkCancellation()
@@ -88,8 +96,23 @@ struct BeatSession: Codable {
                     guard abs(duration-result.duration) < 0.1 else { throw StudioError.message("音频时长已变化，无法安全恢复波形；原标记已保留") }
                     waveform = result.waveform; bpm = result.bpm; message = "波形已恢复，原标记与工程帧率保持不变"; return
                 }
-                selectionUndo = nil; waveform = result.waveform; duration = result.duration; markers = result.markers; bpm = result.bpm
-                message = "找到 \(markers.filter(\.enabled).count) 个节拍候选，请试听确认；重新分析将替换现有标记"
+                var cues = sentenceCues
+                if let whisper {
+                    message = "Whisper 正在本机识别人声句子…"
+                    let stem = temp.appendingPathComponent("sentences")
+                    let transcriber = Process(); transcriber.executableURL = URL(fileURLWithPath: whisper.executable)
+                    transcriber.arguments = ["-m", whisper.model, "-f", temp.appendingPathComponent("speech.wav").path, "-l", whisper.language, "-ml", "1", "-oj", "-of", stem.path]
+                    transcriber.standardError = handle; transcriber.standardOutput = handle; process = transcriber
+                    try transcriber.run()
+                    await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in DispatchQueue.global().async { transcriber.waitUntilExit(); c.resume() } }
+                    try Task.checkCancellation()
+                    guard transcriber.terminationStatus == 0 else { throw StudioError.message(String(((try? String(contentsOf: log, encoding: .utf8)) ?? "Whisper 识别失败").suffix(1800))) }
+                    cues = try SentenceBeats.transcribed(Data(contentsOf: stem.appendingPathExtension("json")))
+                }
+                let generated = try cues.map { try SentenceBeats.markers($0, duration: result.duration, fps: sentenceFPS) } ?? result.markers
+                selectionUndo = nil; waveform = result.waveform; duration = result.duration; markers = generated; bpm = result.bpm
+                filter = cues == nil ? .all : .sentence
+                message = cues == nil ? "找到 \(markers.filter(\.enabled).count) 个节拍候选，请试听确认；重新分析将替换现有标记" : "已按句子生成 \(markers.count) 个句首切点，请试听确认；一条字幕对应一句，不按字数估算时间"
             } catch { message = error is CancellationError ? "已取消分析，原标记保留" : error.localizedDescription }
         }
     }

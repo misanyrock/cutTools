@@ -6,6 +6,7 @@ enum BeatFilter: String, CaseIterable, Identifiable {
     case transition = "能量转折"
     case highlights = "强拍与转折"
     case manual = "手动"
+    case sentence = "句子"
     var id: String { rawValue }
     func includes(_ marker: BeatMarker) -> Bool {
         switch self {
@@ -14,6 +15,7 @@ enum BeatFilter: String, CaseIterable, Identifiable {
         case .transition: return marker.kind == "能量转折候选"
         case .highlights: return marker.kind == "强拍候选" || marker.kind == "能量转折候选"
         case .manual: return marker.kind == "手动标记"
+        case .sentence: return marker.kind.hasPrefix("句子：")
         }
     }
     func enabledOnly(_ markers: [BeatMarker]) -> [BeatMarker] {

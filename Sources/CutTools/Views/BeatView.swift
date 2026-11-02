@@ -1,10 +1,14 @@
 import SwiftUI
 import AVKit
+import UniformTypeIdentifiers
 
 struct BeatView: View {
     @ObservedObject var store: BeatStore
     @EnvironmentObject var w: Workspace
     @State private var confirmAnalyze = false
+    @State private var sentenceMode = false
+    @State private var pendingCues: [Cue]?
+    @State private var pendingTranscription = false
     var body: some View {
         VStack(alignment:.leading,spacing:20) {
             HStack {
@@ -32,6 +36,7 @@ struct BeatView: View {
                         HStack {
                             Label("强拍 / 节拍",systemImage:"diamond.fill").foregroundStyle(.orange)
                             Label("手动标记",systemImage:"diamond.fill").foregroundStyle(.green)
+                            Label("句首切点",systemImage:"diamond.fill").foregroundStyle(.teal)
                             Spacer(); Text("点击波形定位 · 点击时间试听 · M 补点").foregroundStyle(.secondary)
                         }.font(.caption)
                     }
@@ -40,13 +45,14 @@ struct BeatView: View {
                     Text("标记列表").font(.headline)
                     MetricPill(title:"已启用 \(store.markers.filter(\.enabled).count)",symbol:"checkmark.circle")
                     Spacer()
-                    Picker("显示",selection:$store.filter) { ForEach(BeatFilter.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented).frame(maxWidth:430)
+                    Picker("显示",selection:$store.filter) { ForEach(BeatFilter.allCases) { Text($0.rawValue).tag($0) } }.frame(maxWidth:170)
                     Toggle("仅启用",isOn:$store.enabledOnly).toggleStyle(.checkbox)
                     Menu("批量保留") {
                         Button("仅启用强拍") { store.keepOnly(.strong) }
                         Button("仅启用能量转折") { store.keepOnly(.transition) }
                         Button("仅启用强拍与转折") { store.keepOnly(.highlights) }
                         Button("仅启用手动标记") { store.keepOnly(.manual) }
+                        Button("仅启用句子切点") { store.keepOnly(.sentence) }
                         Button("启用全部") { store.keepOnly(.all) }
                     }.fixedSize()
                     Button { store.undoSelection() } label: { Image(systemName:"arrow.uturn.backward") }.disabled(store.selectionUndo == nil).help("撤销上次批量保留")
@@ -59,20 +65,50 @@ struct BeatView: View {
                     Menu { Button("导出 CSV 时间表") { store.save(kind:"csv") }; Button("保存标记工程") { store.save(kind:"json") } } label: { Label("更多导出",systemImage:"ellipsis") }.fixedSize()
                     Button { store.save(kind:"fcpxml") } label: { Label("导出 FCPXML",systemImage:"square.and.arrow.up") }.buttonStyle(.borderedProminent)
                 }.disabled(store.busy)
-                Text("强拍与转折为算法候选；FCPXML 将新建带音乐与标记的时间线，导入后请检查对齐。").font(.caption).foregroundStyle(.secondary)
+                Text("句子切点位于每条字幕的起点；强拍与转折为算法候选。FCPXML 将新建带音频与标记的时间线，导入后请检查对齐。").font(.caption).foregroundStyle(.secondary)
             } else if !store.busy { emptyState }
             if store.busy { HStack { ProgressView().controlSize(.small); Text(store.message).foregroundStyle(.secondary); Spacer(); Button("取消分析") { store.cancel() } }.font(.callout) }
         }.onDisappear { store.player.pause() }
-        .confirmationDialog("重新分析会替换全部自动与手动标记",isPresented:$confirmAnalyze) { Button("替换并重新分析",role:.destructive) { store.analyze(ffmpeg:w.ffmpeg) } }
+        .confirmationDialog("重新生成会替换全部现有标记",isPresented:$confirmAnalyze) { Button("替换并生成",role:.destructive) { runAnalysis() } }
     }
     var analysisControls: some View {
-        HStack(spacing:14) {
-            Text("检测强度").font(.callout.weight(.medium))
-            Slider(value:$store.sensitivity,in:0.3...2).frame(width:140).disabled(store.busy)
-            Text("越高，候选越少").font(.caption).foregroundStyle(.secondary)
-            Button(store.markers.isEmpty ? "分析节拍" : "重新分析") { if store.markers.isEmpty { store.analyze(ffmpeg:w.ffmpeg) } else { confirmAnalyze = true } }.disabled(store.busy)
-            Spacer()
-            if let bpm = store.bpm { MetricPill(title:"约 \(Int(bpm.rounded())) BPM",symbol:"metronome") }
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("卡点方式", selection: $sentenceMode) { Text("按音乐节拍").tag(false); Text("按句子卡点").tag(true) }.pickerStyle(.segmented).frame(maxWidth: 320).disabled(store.busy)
+            if sentenceMode {
+                HStack {
+                    Button("识别人声句子") { prepareAnalysis(transcribe: true) }.disabled(store.busy)
+                    Button("导入 SRT 生成切点") { importSentences() }.disabled(store.busy)
+                    Menu("使用当前字幕") {
+                        Button("中文字幕") { prepareAnalysis(cues: w.chinese) }.disabled(w.chinese.isEmpty)
+                        Button("英文字幕") { prepareAnalysis(cues: w.english) }.disabled(w.english.isEmpty)
+                    }.fixedSize().disabled(store.busy)
+                }
+                Text("使用工具箱中配置的 Whisper，按标点和停顿分句；也可导入与音频同起点的 SRT，每条字幕算一句。歌声识别结果需试听确认。")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                HStack(spacing:14) {
+                    Text("检测强度").font(.callout.weight(.medium))
+                    Slider(value:$store.sensitivity,in:0.3...2).frame(width:140).disabled(store.busy)
+                    Text("越高，候选越少").font(.caption).foregroundStyle(.secondary)
+                    Button(store.markers.isEmpty ? "分析节拍" : "重新分析") { prepareAnalysis() }.disabled(store.busy)
+                    Spacer()
+                    if let bpm = store.bpm { MetricPill(title:"约 \(Int(bpm.rounded())) BPM",symbol:"metronome") }
+                }
+            }
+        }
+    }
+    func prepareAnalysis(cues: [Cue]? = nil, transcribe: Bool = false) {
+        pendingCues = cues; pendingTranscription = transcribe
+        if store.markers.isEmpty { runAnalysis() } else { confirmAnalyze = true }
+    }
+    func runAnalysis() {
+        let path = w.whisperPath.contains("/") ? w.whisperPath : (w.executable(w.whisperPath) ?? w.whisperPath)
+        store.analyze(ffmpeg: w.ffmpeg, sentenceCues: pendingCues, whisper: pendingTranscription ? (path, w.whisperModel, w.language) : nil)
+    }
+    func importSentences() {
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [UTType(filenameExtension: "srt") ?? .plainText]
+        if panel.runModal() == .OK, let url = panel.url {
+            do { prepareAnalysis(cues: try SRT.read(url)) } catch { store.message = error.localizedDescription }
         }
     }
     var markerList: some View {
@@ -81,7 +117,7 @@ struct BeatView: View {
                 HStack(spacing:16) {
                     Toggle(isOn:Binding(get:{ store.markers.first(where:{ $0.id == marker.id })?.enabled ?? false },set:{ value in if let i = store.markers.firstIndex(where:{ $0.id == marker.id }) { store.markers[i].enabled = value } })) { EmptyView() }.labelsHidden().toggleStyle(.checkbox)
                     Button { store.seek(max(0,marker.time-0.3)); store.player.play() } label: { Label(SRT.stamp(marker.time),systemImage:"play.circle").font(.system(size:13,weight:.medium,design:.monospaced)) }.buttonStyle(.plain)
-                    Text(marker.kind).font(.caption.weight(.medium)).foregroundStyle(marker.kind == "强拍候选" ? Color.orange : Color.secondary).padding(.horizontal,9).padding(.vertical,4).background(.primary.opacity(0.04),in:Capsule())
+                    Text(marker.kind).font(.caption.weight(.medium)).foregroundStyle(BeatFilter.sentence.includes(marker) ? Color.teal : marker.kind == "强拍候选" ? Color.orange : Color.secondary).lineLimit(2).help(marker.kind).padding(.horizontal,9).padding(.vertical,4).background(.primary.opacity(0.04),in:Capsule())
                     Spacer()
                     HStack(spacing:8) {
                         Button { store.shift(marker.id,by:-1/Double(store.fps)) } label: { Image(systemName:"chevron.left") }.help("提前 1 帧")
@@ -129,7 +165,7 @@ struct BeatView: View {
                     for marker in store.visibleMarkers {
                         let x = marker.time/store.duration*size.width
                         var line = Path(); line.move(to:CGPoint(x:x,y:4)); line.addLine(to:CGPoint(x:x,y:size.height-22))
-                        context.stroke(line,with:.color((marker.kind == "手动标记" ? Color.green : Color.orange).opacity(marker.enabled ? 0.9 : 0.25)),style:StrokeStyle(lineWidth:1,dash:marker.enabled ? [] : [4,3]))
+                        context.stroke(line,with:.color((BeatFilter.sentence.includes(marker) ? Color.teal : marker.kind == "手动标记" ? Color.green : Color.orange).opacity(marker.enabled ? 0.9 : 0.25)),style:StrokeStyle(lineWidth:1,dash:marker.enabled ? [] : [4,3]))
                     }
                     let x = store.currentTime/store.duration*size.width
                     var playhead = Path(); playhead.move(to:CGPoint(x:x,y:0)); playhead.addLine(to:CGPoint(x:x,y:size.height-22))
